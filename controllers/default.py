@@ -9,52 +9,78 @@
 #########################################################################
 
 def index():
-    """
-    example action using the internationalization operator T and flash
-    rendered by views/default/index.html or views/generic.html
+     """ this controller returns a dictionary rendered by the view
+         it lists all wiki pages
+     >>> index().has_key('pages')
+     True
+     """
+     pages = db().select(db.page.id,db.page.title,orderby=db.page.title)
+     return dict(pages=pages)
 
-    if you need a simple wiki simply replace the two lines below with:
-    return auth.wiki()
-    """
-    response.flash = T("Hello World")
-    return dict(message=T('Welcome to web2py!'))
+@auth.requires_login()
+def create():
+     """creates a new empty wiki page"""
+     form = SQLFORM(db.page).process(next=URL('index'))
+     return dict(form=form)
 
+def show():
+     """shows a wiki page"""
+     this_page = db.page(request.args(0,cast=int)) or redirect(URL('index'))
+     db.post.page_id.default = this_page.id
+     form = SQLFORM(db.post).process() if auth.user else None
+     pagecomments = db(db.post.page_id==this_page.id).select()
+     return dict(page=this_page, comments=pagecomments, form=form)
+
+@auth.requires_login()
+def edit():
+     """edit an existing wiki page"""
+     this_page = db.page(request.args(0,cast=int)) or redirect(URL('index'))
+     form = SQLFORM(db.page, this_page).process(
+         next = URL('show',args=request.args))
+     return dict(form=form)
+
+@auth.requires_login()
+def documents():
+     """browser, edit all documents attached to a certain page"""
+     page = db.page(request.args(0,cast=int)) or redirect(URL('index'))
+     db.document.page_id.default = page.id
+     db.document.page_id.writable = False
+     grid = SQLFORM.grid(db.document.page_id==page.id,args=[page.id])
+     return dict(page=page, grid=grid)
 
 def user():
-    """
-    exposes:
-    http://..../[app]/default/user/login
-    http://..../[app]/default/user/logout
-    http://..../[app]/default/user/register
-    http://..../[app]/default/user/profile
-    http://..../[app]/default/user/retrieve_password
-    http://..../[app]/default/user/change_password
-    http://..../[app]/default/user/manage_users (requires membership in
-    http://..../[app]/default/user/bulk_register
-    use @auth.requires_login()
-        @auth.requires_membership('group name')
-        @auth.requires_permission('read','table name',record_id)
-    to decorate functions that need access control
-    """
-    return dict(form=auth())
+     return dict(form=auth())
 
-
-@cache.action()
 def download():
-    """
-    allows downloading of uploaded files
-    http://..../[app]/default/download/[filename]
-    """
-    return response.download(request, db)
+     """allows downloading of documents"""
+     return response.download(request, db)
 
+def search():
+     """an ajax wiki search page"""
+     return dict(form=FORM(INPUT(_id='keyword',_name='keyword',
+              _onkeyup="ajax('callback', ['keyword'], 'target');")),
+              target_div=DIV(_id='target'))
 
-def call():
-    """
-    exposes services. for example:
-    http://..../[app]/default/call/jsonrpc
-    decorate with @services.jsonrpc the functions to expose
-    supports xml, json, xmlrpc, jsonrpc, amfrpc, rss, csv
-    """
-    return service()
+def callback():
+     """an ajax callback that returns a <ul> of links to wiki pages"""
+     query = db.page.title.contains(request.vars.keyword)
+     pages = db(query).select(orderby=db.page.title)
+     links = [A(p.title, _href=URL('show',args=p.id)) for p in pages]
+     return UL(*links)
 
-
+def news():
+    """generates rss feed from the wiki pages"""
+    response.generic_patterns = ['.rss']
+    pages = db().select(db.page.ALL, orderby=db.page.title)
+    return dict(
+       title = 'mywiki rss feed',
+       link = 'http://127.0.0.1:8000/mywiki/default/index',
+       description = 'mywiki news',
+       created_on = request.now,
+       items = [
+          dict(title = row.title,
+               link = URL('show', args=row.id, scheme=True,
+                      host=True, extension=False),
+               description = MARKMIN(row.body).xml(),
+               created_on = row.created_on
+               ) for row in pages])

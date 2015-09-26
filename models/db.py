@@ -5,88 +5,82 @@
 ## File is released under public domain and you can use without limitations
 #########################################################################
 
-## if SSL/HTTPS is properly configured and you want all HTTP requests to
-## be redirected to HTTPS, uncomment the line below:
-# request.requires_https()
+db = DAL('sqlite://storage.sqlite')
 
-## app configuration made easy. Look inside private/appconfig.ini
-from gluon.contrib.appconfig import AppConfig
-## once in production, remove reload=True to gain full speed
-myconf = AppConfig(reload=True)
-
-
-if not request.env.web2py_runtime_gae:
-    ## if NOT running on Google App Engine use SQLite or other DB
-    db = DAL(myconf.take('db.uri'), pool_size=myconf.take('db.pool_size', cast=int), check_reserved=['all'])
-else:
-    ## connect to Google BigTable (optional 'google:datastore://namespace')
-    db = DAL('google:datastore+ndb')
-    ## store sessions and tickets there
-    session.connect(request, response, db=db)
-    ## or store session in Memcache, Redis, etc.
-    ## from gluon.contrib.memdb import MEMDB
-    ## from google.appengine.api.memcache import Client
-    ## session.connect(request, response, db = MEMDB(Client()))
-
-## by default give a view/generic.extension to all actions from localhost
-## none otherwise. a pattern can be 'controller/function.extension'
-response.generic_patterns = ['*'] if request.is_local else []
-## choose a style for forms
-response.formstyle = myconf.take('forms.formstyle')  # or 'bootstrap3_stacked' or 'bootstrap2' or other
-response.form_label_separator = myconf.take('forms.separator')
-
-
-## (optional) optimize handling of static files
-# response.optimize_css = 'concat,minify,inline'
-# response.optimize_js = 'concat,minify,inline'
-## (optional) static assets folder versioning
-# response.static_version = '0.0.0'
-#########################################################################
-## Here is sample code if you need for
-## - email capabilities
-## - authentication (registration, login, logout, ... )
-## - authorization (role based authorization)
-## - services (xml, csv, json, xmlrpc, jsonrpc, amf, rss)
-## - old style crud actions
-## (more options discussed in gluon/tools.py)
-#########################################################################
-
-from gluon.tools import Auth, Service, PluginManager
-
+from gluon.tools import *
 auth = Auth(db)
-service = Service()
-plugins = PluginManager()
+auth.define_tables()
+#crud = Crud(db)
 
-## create all tables needed by auth if not custom tables
-auth.define_tables(username=False, signature=False)
+db.define_table("image",
+    Field("title", unique=True),
+    Field("file", "upload"),
+    format = "%(title)s")
 
-## configure email
-mail = auth.settings.mailer
-mail.settings.server = 'logging' if request.is_local else myconf.take('smtp.server')
-mail.settings.sender = myconf.take('smtp.sender')
-mail.settings.login = myconf.take('smtp.login')
+db.define_table("club",
+    Field("name", unique=True),
+    Field("city", unique=True),
+    Field("state"))
 
-## configure auth policy
-auth.settings.registration_requires_verification = False
-auth.settings.registration_requires_approval = False
-auth.settings.reset_password_requires_verification = True
+db.define_table('comment',
+    Field('body', 'text'),
+    Field('created_on', 'datetime', default=request.now),
+    Field('created_by', 'reference auth_user', default=auth.user_id),
+    format='%(title)s')
 
-#########################################################################
-## Define your tables below (or better in another model file) for example
-##
-## >>> db.define_table('mytable',Field('myfield','string'))
-##
-## Fields can be 'string','text','password','integer','double','boolean'
-##       'date','time','datetime','blob','upload', 'reference TABLENAME'
-## There is an implicit 'id integer autoincrement' field
-## Consult manual for more options, validators, etc.
-##
-## More API examples for controllers:
-##
-## >>> db.mytable.insert(myfield='value')
-## >>> rows=db(db.mytable.myfield=='value').select(db.mytable.ALL)
-## >>> for row in rows: print row.id, row.myfield
-#########################################################################
+db.define_table('document',
+    Field('name'),
+    Field('file', 'upload'),
+    Field('created_on', 'datetime', default=request.now),
+    Field('created_by', 'reference auth_user', default=auth.user_id),
+    format='%(name)s')
 
-## after defining tables, uncomment below to enable auditing
-# auth.enable_record_versioning(db)
+db.define_table('blogpost',
+    Field('title'),
+    Field('body', 'text'),
+    Field('created_on', 'datetime', default=request.now),
+    Field('created_by', 'reference auth_user', default=auth.user_id),
+    Field('comment_id', 'reference comment'),
+    Field('document_id', 'reference document'),
+    Field('tags', 'list:string'))
+
+db.define_table('page',
+    Field('title'),
+    Field('body', 'text'),  # essentially serves as an about me section
+    Field('blogpost_id', 'list:reference blogpost'),
+    Field('created_on', 'datetime', default=request.now),
+    Field('created_by', 'reference auth_user', default=auth.user_id),
+    format='%(title)s')
+
+db.define_table("user",
+    Field("first_name"),
+    Field("last_name"),
+    Field("username", unique=True),
+    Field("email", unique=True),
+    Field("photo_id", "reference image"),
+    Field("page_id", "list:reference page"),
+    Field("club", "reference club"))
+
+db.club.name.requires = IS_NOT_EMPTY()
+db.club.city.requires = IS_NOT_EMPTY()
+db.club.state.requires = IS_NOT_EMPTY()
+
+db.comment.body.requires = IS_NOT_EMPTY()
+db.comment.created_by.readable = db.comment.created_by.writable = False
+db.comment.created_on.readable = db.comment.created_on.writable = False
+
+db.blogpost.body.requires = IS_NOT_EMPTY()
+db.blogpost.created_on.readable = db.blogpost.created_on.writable = False
+db.blogpost.created_by.readable = db.blogpost.created_by.writable = False
+db.blogpost.comment_id.readable = db.blogpost.comment_id.writable = False
+db.blogpost.document_id.readable = db.blogpost.document_id.writable = False
+
+db.page.title.requires = IS_NOT_EMPTY()
+db.page.body.reference = IS_NOT_EMPTY()
+db.page.blogpost_id.readable = db.page.blogpost_id.writable = False
+db.page.created_on.readable = db.page.created_on.writable = False
+db.page.created_by.readable = db.page.created_by.writable = False
+
+db.document.name.requires = IS_NOT_IN_DB(db, 'document.name')
+db.document.created_by.readable = db.document.created_by.writable = False
+db.document.created_on.readable = db.document.created_on.writable = False
