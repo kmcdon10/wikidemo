@@ -84,4 +84,3 @@ def news():
                description = MARKMIN(row.body).xml(),
                created_on = row.created_on
                ) for row in pages])
-
